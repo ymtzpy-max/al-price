@@ -1,7 +1,6 @@
 name: DailyAlPriceCrawl
 on:
   schedule:
-    # UTC 02:20 = 北京时间10:20
     cron: "20 2 * 1-12 1-5"
   workflow_dispatch:
 
