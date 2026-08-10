@@ -14,6 +14,7 @@ global_cache = {
 }
 
 def get_cst_now() -> datetime:
+    # 系统已经被yml设置为Asia/Shanghai，直接now()就是北京时间
     return datetime.now()
 
 def write_runtime_log(content: str):
@@ -37,17 +38,17 @@ def get_boc_usd_buy_rate() -> float:
         write_runtime_log(f"中行USD现汇买入价：{rate}")
         return rate
     except Exception as e:
-        write_runtime_log(f"汇率接口异常：{str(e)}")
+        write_runtime_log(f"汇率获取异常：{str(e)}")
         return 0.0
 
-# 2、上期所沪铝价格（修复，替换废弃接口）
+# 2、上期所沪铝主力合约价格，使用新浪稳定接口
 def get_shfe_al_price() -> float | None:
     try:
-        df = ak.futures_zh_realtime(symbol="沪铝")
+        df = ak.futures_main_sina(symbol="AL0")
         if df.empty:
             write_runtime_log("上期所沪铝当日无行情数据")
             return None
-        close_price = float(df.iloc[0]["最新"])
+        close_price = float(df.iloc[0]["close"])
         global_cache["shfe_1015_price"] = close_price
         write_runtime_log(f"沪铝10:15基准价：{close_price} 元/吨")
         return close_price
@@ -55,7 +56,7 @@ def get_shfe_al_price() -> float | None:
         write_runtime_log(f"上期所数据异常：{str(e)}")
         return None
 
-# 3、SMM铝现货价格，仅提取现货价，舍弃基差
+# 3、SMM铝现货价格
 def get_smm_al_spot_price() -> float | None:
     try:
         df = ak.futures_spot_price(prod_code="al", trade_date=global_cache["today_trade_date"])
@@ -74,7 +75,6 @@ def save_all_data(fut_price: float, spot_price: float, fx_rate: float):
     cst_now = get_cst_now().strftime("%Y-%m-%d %H:%M:%S")
     trade_dt = global_cache["today_trade_date"]
 
-    # 结构化JSON，只保留你需要的字段
     record = {
         "collect_time": cst_now,
         "trade_date": trade_dt,
@@ -84,7 +84,6 @@ def save_all_data(fut_price: float, spot_price: float, fx_rate: float):
         "collect_period": "当日10:18~10:22一次性采集固化"
     }
 
-    # 写入JSON，剔除当日重复数据
     history = []
     if JSON_SAVE_PATH.exists():
         with open(JSON_SAVE_PATH, "r", encoding="utf-8") as f:
@@ -94,7 +93,6 @@ def save_all_data(fut_price: float, spot_price: float, fx_rate: float):
     with open(JSON_SAVE_PATH, "w", encoding="utf-8") as f:
         json.dump(history, ensure_ascii=False, indent=2)
 
-    # 格式化写入price_log.txt
     log_content = f"""
 =============================================
 采集时间：{cst_now}
@@ -122,19 +120,16 @@ def main():
         write_runtime_log("超出10:00~10:30采集时段，程序退出")
         return
 
-    # 先拉取期货价格缓存
     get_shfe_al_price()
     fut_price = global_cache["shfe_1015_price"]
     if fut_price is None:
         write_runtime_log("无有效期货价格，本次不归档")
         return
 
-    # 分时段控制
     if 0 <= minute <= 17:
-        write_runtime_log("10:00-10:17，仅缓存期货价格，暂不采集现货、汇率")
-
+        write_runtime_log("10:00‑10:17，仅缓存期货价格，暂不采集现货、汇率")
     elif 18 <= minute <= 22:
-        write_runtime_log("进入核心采集窗口10:18-10:22，采集现货+汇率")
+        write_runtime_log("进入核心采集窗口10:18‑10:22，采集现货+汇率")
         spot_price = get_smm_al_spot_price()
         if spot_price is None:
             write_runtime_log("现货数据缺失，终止归档")
@@ -143,9 +138,8 @@ def main():
             get_boc_usd_buy_rate()
         fx_rate = global_cache["usd_buy_rate"]
         save_all_data(fut_price, spot_price, fx_rate)
-
     elif 23 <= minute <= 30:
-        write_runtime_log("10:23-10:30，当日数据已锁定，无需重复采集")
+        write_runtime_log("10:23‑10:30，当日数据已锁定，无需重复采集")
 
 if __name__ == "__main__":
     main()
