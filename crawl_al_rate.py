@@ -40,14 +40,14 @@ def get_boc_usd_buy_rate() -> float:
         write_runtime_log(f"汇率接口异常：{str(e)}")
         return 0.0
 
-# 2、上期所沪铝当日早盘收盘价格
+# 2、上期所沪铝价格（修复，替换废弃接口）
 def get_shfe_al_price() -> float | None:
     try:
-        df = ak.get_shfe_daily(symbol="al", trade_date=global_cache["today_trade_date"])
+        df = ak.futures_zh_realtime(symbol="沪铝")
         if df.empty:
             write_runtime_log("上期所沪铝当日无行情数据")
             return None
-        close_price = float(df.iloc[0]["close"])
+        close_price = float(df.iloc[0]["最新"])
         global_cache["shfe_1015_price"] = close_price
         write_runtime_log(f"沪铝10:15基准价：{close_price} 元/吨")
         return close_price
@@ -109,7 +109,7 @@ SMM铝现货报价：{spot_price} 元/吨
 
     write_runtime_log("当日全部数据归档完成（JSON + price_log.txt）")
 
-# 主定时时序逻辑不变
+# 主定时时序逻辑
 def main():
     now = get_cst_now()
     hour = now.hour
