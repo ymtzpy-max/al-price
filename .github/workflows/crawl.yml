@@ -1,36 +1,38 @@
-name: 沪铝每日10:15基准期现货定点采集
+name: Aluminum Price & FX Timed Crawl
 on:
   schedule:
-    # cron格式：分 时 日 月 周；UTC 02:00-02:30 每2分钟执行，仅工作日
-    - cron: '*/2 2 * * 1-5'
-  # 支持手动一键触发测试
+    # UTC 02:00~02:30 每2分钟执行，周一至周五
+    - cron: "*/2 2 * * 1-5"
   workflow_dispatch:
 
 jobs:
-  run_crawl_task:
+  crawl_task:
     runs-on: ubuntu-latest
+    env:
+      TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
     steps:
-      - name: 拉取仓库代码
+      - name: Checkout repository code
         uses: actions/checkout@v4
 
-      - name: 配置Python环境
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: 安装依赖包
+      - name: Install dependent packages
         run: |
           python -m pip install --upgrade pip
-          pip install requests
+          pip install tushare requests
 
-      - name: 执行采集脚本
+      - name: Execute crawl script
         run: python crawl_al_rate.py
 
-      - name: 自动提交更新后的CSV数据
+      - name: Commit updated data files
         run: |
-          git config --global user.name "AlDataAutoBot"
-          git config --global user.email "al-crawl@example.com"
-          git add al_daily_basis.csv
-          # 无新数据时跳过commit，避免空提交报错
-          git diff --quiet && git diff --staged --quiet || git commit -m "自动归档当日10:15基准期现货数据"
-          git push
+          git config --global user.name "AlCrawlAutoBot"
+          git config --global user.email "crawl_bot@noreply.altrade.com"
+          git add daily_price.json price_log.txt
+          git diff --quiet && git diff --staged --quiet || (
+              git commit -m "Auto sync price+fx data @ $(date '+%Y-%m-%d %H:%M CST')"
+              git push
+          )
