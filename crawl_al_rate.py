@@ -1,55 +1,107 @@
-import akshare as ak
-import json
 from datetime import datetime
+import csv
+import os
+import time
 
-def get_smm_a00_al():
-    # 获取SMM所有金属现货报价
-    df = ak.metal_smm_aluminum_spot()
-    # 筛选SMM A00铝，取均价
-    target_row = df[df["品种"] == "SMM A00铝"].iloc[0]
-    return float(target_row["均价"])
+# ====================== 配置参数（北京时间）======================
+SAVE_CSV = "al_daily_basis.csv"
 
-def get_usd_boc_rate():
-    # 获取中行美元牌价，最新一条现汇买入价
-    df = ak.currency_boc_sina(symbol="美元")
-    latest = df.iloc[-1]
-    raw = float(latest["现汇买入价"])
-    # 中行单位100外币，换算真实汇率
-    return raw / 100
+# 总采集窗口：10:00 ~ 10:30
+WINDOW_START_H, WINDOW_START_M = 10, 0
+WINDOW_END_H, WINDOW_END_M = 10, 30
 
-def save_data(al_price, usd_rate):
-    now = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
-    today = datetime.now().strftime("%Y-%m-%d")
-    log_line = f"【{now}】日期：{today}｜美元现汇买入价：{usd_rate:.4f}｜SMM A00铝10:15报价均价：{al_price:.0f}\n"
+# SMM现货抓取窗口：10:18～10:22（给后台5分钟刷新缓冲）
+SPOT_TARGET_H, SPOT_TARGET_M = 10, 20
+SPOT_TIME_TOLERANCE = 2
 
-    # 写入文本日志
-    with open("price_log.txt", "a", encoding="utf-8") as f:
-        f.write(log_line)
+# =================================================================
 
-    # 写入结构化JSON
-    record = {"date": today, "usdRate": usd_rate, "smmSpot": al_price}
-    try:
-        with open("daily_price.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except:
-        data = []
-    # 同一天覆盖旧记录
-    update = False
-    for item in data:
-        if item["date"] == today:
-            item.update(record)
-            update = True
-            break
-    if not update:
-        data.append(record)
-    with open("daily_price.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    print(log_line)
+def current_total_minute(dt: datetime) -> int:
+    """把时分换算成当日总分钟数"""
+    return dt.hour * 60 + dt.minute
+
+def is_in_valid_window(dt: datetime) -> bool:
+    """校验是否处于 10:00 ~ 10:30"""
+    now_min = current_total_minute(dt)
+    start_min = WINDOW_START_H * 60 + WINDOW_START_M
+    end_min = WINDOW_END_H * 60 + WINDOW_END_M
+    return start_min <= now_min < end_min
+
+def can_fetch_spot(dt: datetime) -> bool:
+    """判断是否进入现货专属抓取区间"""
+    now_min = current_total_minute(dt)
+    target_min = SPOT_TARGET_H * 60 + SPOT_TARGET_M
+    return abs(now_min - target_min) <= SPOT_TIME_TOLERANCE
+
+def get_future_price():
+    """
+    【此处替换为你真实沪铝期货接口】
+    10:15之后行情冻结，拿到的就是10:15基准收盘价
+    """
+    now_dt = datetime.now()
+    remark = "10:15早盘休市锁定基准价" if current_total_minute(now_dt) >= 10*60+15 else "10:00-10:14盘中实时行情"
+    return {
+        "collect_time": now_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "category": "future",
+        "price": 0.0,
+        "remark": remark
+    }
+
+def get_spot_price():
+    """
+    【此处替换SMM铝现货官方接口】
+    仅10:18~10:22执行，取依托10:15期货更新的当日现货定价
+    """
+    time.sleep(2)
+    now_dt = datetime.now()
+    return {
+        "collect_time": now_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "category": "spot",
+        "price": 0.0,
+        "remark": "当日现货基准价，绑定10:15期货收盘数据"
+    }
+
+def init_csv_header():
+    """文件不存在则初始化表头"""
+    if not os.path.exists(SAVE_CSV):
+        headers = ["collect_time", "category", "price", "remark"]
+        with open(SAVE_CSV, "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(headers)
+
+def write_data_row(data: dict):
+    """追加一行数据写入CSV"""
+    row = [
+        data["collect_time"],
+        data["category"],
+        data["price"],
+        data["remark"]
+    ]
+    with open(SAVE_CSV, "a", encoding="utf-8", newline="") as f:
+        csv.writer(f).writerow(row)
+
+def main():
+    init_csv_header()
+    now = datetime.now()
+    print(f"===== 本轮执行时间：{now.strftime('%Y-%m-%d %H:%M:%S')} =====")
+
+    # 不在10:00~10:30直接终止运行，不产生任何数据
+    if not is_in_valid_window(now):
+        print("当前不在 10:00~10:30 采集时段，退出程序")
+        return
+
+    # 只要在窗口内，必定采集并写入期货数据
+    future_info = get_future_price()
+    write_data_row(future_info)
+    print(f"已写入期货数据：{future_info}")
+
+    # 仅命中10:18~10:22才抓取现货，其余时段跳过现货
+    if can_fetch_spot(now):
+        spot_info = get_spot_price()
+        write_data_row(spot_info)
+        print(f"命中现货采集窗口，当日现货已入库：{spot_info}")
+    else:
+        print("未到现货抓取时间，跳过现货拉取")
 
 if __name__ == "__main__":
-    try:
-        al = get_smm_a00_al()
-        rate = get_usd_boc_rate()
-        save_data(al, rate)
-    except Exception as e:
-        print("抓取失败：", str(e))
+    main()
