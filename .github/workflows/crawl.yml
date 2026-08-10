@@ -23,7 +23,7 @@ jobs:
           pip install akshare pandas
 
       - name: 执行采集脚本
-        run: python crawl_al_rate.py
+        run: python -u crawl_al_rate.py
 
       - name: 自动提交更新文件
         run: |
