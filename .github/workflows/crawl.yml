@@ -1,0 +1,45 @@
+name: 每日10:20抓取铝价行情
+on:
+  schedule:
+    # UTC时间02:20 = 北京时间 10:20，周一至周五执行
+    cron: "20 2 * 1-12 1-5"
+  # 支持你手动点按钮随时测试运行
+  workflow_dispatch:
+
+jobs:
+  crawl-task:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # 1.拉取你仓库里所有文件
+      - name: 拉取仓库文件
+        uses: actions/checkout@v6
+
+      # 2.安装Node.js运行环境
+      - name: 配置Node20环境
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      # 3.安装Playwright依赖、浏览器
+      - name: 安装运行依赖
+        run: |
+          npm init -y
+          npm install playwright
+          npx playwright install chromium --with-deps
+
+      # 4.执行你的抓取脚本 scrape-log.js
+      - name: 运行价格抓取脚本
+        run: node scrape-log.js
+
+      # 5.抓取成功后自动把日志文件提交回仓库保存
+      - name: 提交更新后的日志
+        uses: EndBug/add-and-commit@v10
+        with:
+          author_name: 自动行情抓取机器人
+          author_email: robot@github.com
+          message: 自动抓取当日SMM现货+美元现汇
+          add: |
+            price_log.txt
+            daily_price.json
