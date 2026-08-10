@@ -1,37 +1,34 @@
 name: DailyAlPriceCrawl
 on:
   schedule:
+    # UTC 02:20 = 北京时间10:20
     cron: "20 2 * 1-12 1-5"
   workflow_dispatch:
 
 jobs:
-  crawl-task:
+  crawl:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Install Python
+        uses: actions/setup-python@v5
         with:
-          node-version: 20
+          python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install akshare
         run: |
-          npm init -y
-          npm install playwright
-          npx playwright install chromium --with-deps
+          pip install --upgrade akshare pandas
 
       - name: Run crawl script
-        run: node scrape-log.js
+        run: python crawl_al_rate.py
 
-      - name: Commit log files
+      - name: Commit logs
         uses: EndBug/add-and-commit@v10
         with:
-          author_name: AutoCrawlBot
+          author_name: AutoPriceBot
           author_email: bot@example.com
-          message: Update daily price log
+          message: Auto update daily price log
           add: |
             price_log.txt
             daily_price.json
